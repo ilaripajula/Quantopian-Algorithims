@@ -1,0 +1,79 @@
+# This example algorithm uses the Relative Strength Index indicator as a buy/sell signal.
+# When the RSI is over 70, a stock can be seen as overbought and it's time to short.
+# When the RSI is below 30, a stock can be seen as oversold and it's time to buy.
+
+import talib
+from quantopian.algorithm import attach_pipeline, pipeline_output
+from quantopian.pipeline import Pipeline
+from quantopian.pipeline.filters.morningstar import Q500US
+from quantopian.pipeline.data.builtin import USEquityPricing
+from quantopian.pipeline.factors import SimpleMovingAverage, AverageDollarVolume
+
+# Setup our variables
+def initialize(context):
+    context.minute_counter = 0
+    commission.PerShare(cost=0.0075, min_trade_cost=1.00)
+    set_asset_restrictions(security_lists.restrict_leveraged_etfs)
+    slippage.VolumeShareSlippage(volume_limit=0.025, price_impact=0.1)
+    
+    context.HIGH_RSI = 82
+    context.LOW_RSI = 18
+    
+    # Create our dynamic stock selector.
+    attach_pipeline(make_pipeline(), 'my_pipeline')
+    
+def make_pipeline():
+    """
+    A function to create a dynamic stock selector (pipeline). Documentation on
+    pipeline can be found here: https://www.quantopian.com/help#pipeline-title
+    """
+    # Construct a simple moving average factor
+    sma = SimpleMovingAverage(inputs=[USEquityPricing.close], window_length=10)
+    # Construct a 30-day average dollar volume factor 
+    dollar_volume = AverageDollarVolume(window_length=30)
+    # Define high dollar-volume filter to be the top 2% of stocks by dollar volume.
+    high_dollar_volume = dollar_volume.percentile_between(99, 100)
+
+    # Set a screen on the pipelines to filter out securities.
+    pipe_screen = ((sma > 100.0) & high_dollar_volume)
+
+    # Create a columns dictionary
+    pipe_columns = {'dollar_volume':dollar_volume, 'sma':sma}
+
+    # Create, register and name a pipeline in initialize.
+    pipe = Pipeline(columns=pipe_columns,screen=pipe_screen)
+    return pipe
+
+def before_trading_start(context, data):
+    """
+    Called every day before market open.
+    """    
+    context.output = pipeline_output('my_pipeline')
+    # These are the securities that we are interested in trading each day.
+    context.stocks = context.output.index
+    context.target_pct_per_stock = (1.0 / len(context.stocks))
+    
+def handle_data(context, data):
+    ''' 
+    handle_data function (called every minute) calculates the rsi for each selected stock and buys/sells based on its rsi value
+    '''
+    context.minute_counter += 1
+    
+    if context.minute_counter >= 30:
+        prices = data.history(context.stocks, 'price', 20, '1d')
+        context.minute_counter = 0
+
+        # Loop through our list of stocks
+        for stock in context.stocks:
+            # Get the rsi of this stock.
+            rsi = talib.RSI(prices[stock], timeperiod=14)[-1] 
+            price = data.current(stock,'price')
+            current_position = context.portfolio.positions[stock].amount
+
+            # RSI is above 70 and we own shares, time to short
+            if rsi > context.HIGH_RSI and data.can_trade(stock):
+                order_target_percent(stock, -1*context.target_pct_per_stock, style = StopOrder(stop_price = price*1.02))
+
+            # RSI is below 30 and we don't have any shares, time to buy
+            elif rsi < context.LOW_RSI and data.can_trade(stock):
+                order_target_percent(stock, 1*context.target_pct_per_stock, style = StopOrder(stop_price = price*0.98))
