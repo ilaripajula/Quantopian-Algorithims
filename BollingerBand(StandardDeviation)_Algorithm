@@ -20,20 +20,21 @@ def my_rebalance(context,data):
         
     for stock in context.stocks:
 
-        data = data.history(stock, 'price', 20 , '1d')
+        data = data.history(stock, 'price', 20 , '1d') #gets the 20 historical price data
         
         price = data[-1]
 
-        sma1 = data.mean()
+        sma1 = data.mean() 
 
-        sd = np.std(data)
-
-        P_SD2 = (sma1 + 2*sd)
+        sd = np.std(data) #numpy to calculate standard deviation
+        
+        #initialize positive and negative standard deviation bounds
+        P_SD2 = (sma1 + 2*sd) 
 
         N_SD2 = (sma1 - 2*sd)
 
-        record(Price = price, SMA = sma1, Top_SD = P_SD2, Bottom_SD = N_SD2 )
-
+        record(Price = price, SMA = sma1, Top_SD = P_SD2, Bottom_SD = N_SD2 ) #record variables onto linegraph
+        
         if price <= N_SD2 and context.portfolio.positions[stock].amount == 0:
             order_target_percent(stock, (1.0/len(context.stocks))) #buys when current price is below twice the negative standard deviation price
         if price >= P_SD2 and context.portfolio.positions[stock].amount > 0:
